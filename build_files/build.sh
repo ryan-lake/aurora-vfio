@@ -2,23 +2,81 @@
 
 set -ouex pipefail
 
-### Install packages
+# Install kvmfr kernel module
 
-# Packages can be installed from any enabled yum repo on the image.
-# RPMfusion repos are available by default in ublue main images
-# List of rpmfusion packages can be found here:
-# https://mirrors.rpmfusion.org/mirrorlist?path=free/fedora/updates/39/x86_64/repoview/index.html&protocol=https&redirect=1
+ARCH="$(rpm -E '%_arch')"
+KERNEL="$(rpm -q "${KERNEL_NAME:-kernel}" --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}')"
+RELEASE="$(rpm -E '%fedora')"
+COPR_RELEASE="${RELEASE}"
 
-# this installs a package from fedora repos
-dnf5 install -y tmux 
 
-# Use a COPR Example:
-#
-# dnf5 -y copr enable ublue-os/staging
-# dnf5 -y install package
-# Disable COPRs so they don't end up enabled on the final image:
-# dnf5 -y copr disable ublue-os/staging
 
-#### Example for enabling a System Unit File
+dnf5 -y copr enable hikariknight/looking-glass-kvmfr
+dnf5 -y install akmod-kvmfr-*.fc${RELEASE}.${ARCH}
+dnf5 -y copr disable hikariknight/looking-glass-kvmfr
 
-systemctl enable podman.socket
+dnf5 install -y tmux minicom neovim tpm2-pkcs11 tpm2-pkcs11-tools
+
+# VFIO setup
+akmods --force --kernels "${KERNEL}" --kmod kvmfr
+
+modinfo "/usr/lib/modules/${KERNEL}/extra/kvmfr/kvmfr.ko.xz" > /dev/null \
+|| (find /var/cache/akmods/kvmfr/ -name \*.log -print -exec cat {} \; && exit 1)
+
+rm -f /etc/yum.repos.d/_copr_hikariknight-looking-glass-kvmfr.repo
+
+# enable vfio, largely from https://github.com/m2Giles/m2os/blob/main/build_files/vfio.sh
+
+tee /usr/lib/dracut/dracut.conf.d/vfio.conf <<'EOF'
+add_drivers+=" vfio vfio_iommu_type1 vfio-pci "
+EOF
+
+tee /usr/lib/modprobe.d/kvmfr.conf <<'EOF'
+options kvmfr static_size_mb=256
+EOF
+
+tee /usr/lib/udev/rules.d/99-kvmfr.rules <<'EOF'
+SUBSYSTEM=="kvmfr", OWNER="root", GROUP="incus-admin", MODE="0660"
+EOF
+
+tee /etc/looking-glass-client.ini <<'EOF'
+[app]
+shmFile=/dev/kvmfr0
+EOF
+
+mkdir -p /etc/kvmfr/selinux/{mod,pp}
+tee /etc/kvmfr/selinux/kvmfr.te <<'EOF'
+module kvmfr 1.0;
+
+ require {
+     type device_t;
+     type svirt_t;
+     class chr_file { open read write map };
+ }
+
+ #============= svirt_t ==============
+ allow svirt_t device_t:chr_file { open read write map };
+EOF
+
+semanage fcontext -a -t svirt_tmpfs_t /dev/kvmfr0
+checkmodule -M -m -o /etc/kvmfr/selinux/mod/kvmfr.mod /etc/kvmfr/selinux/kvmfr.te
+semodule_package -o /etc/kvmfr/selinux/pp/kvmfr.pp -m /etc/kvmfr/selinux/mod/kvmfr.mod
+semodule -i /etc/kvmfr/selinux/pp/kvmfr.pp # Seems broken with Docker
+
+# VFIO Kargs
+tee /usr/libexec/vfio-kargs.sh <<'EOF'
+#!/usr/bin/bash
+CPU_VENDOR=$(grep "vendor_id" "/proc/cpuinfo" | uniq | awk -F": " '{ print $2 }')
+if [[ "${CPU_VENDOR}" == "GenuineIntel" ]]; then
+    VENDOR_KARG="intel_iommu=on"
+elif [[ "${CPU_VENDOR}" == "AuthenticAMD" ]]; then
+    VENDOR_KARG="amd_iommu=on"
+fi
+rpm-ostree kargs \
+    --append-if-missing="${VENDOR_KARG}" \
+    --append-if-missing="iommu=pt" \
+    --append-if-missing="rd.driver.pre=vfio_pci" \
+    --append-if-missing="vfio_pci.disable_vga=1"
+EOF
+
+chmod +x /usr/libexec/vfio-kargs.sh
