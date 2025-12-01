@@ -18,12 +18,10 @@ dnf5 -y copr disable hikariknight/looking-glass-kvmfr
 dnf5 install -y tmux minicom neovim tpm2-pkcs11 tpm2-pkcs11-tools
 
 # VFIO setup
-akmods --force --kernels "${KERNEL}" --kmod kvmfr
+sudo -u akmods akmods --force --kernels "${KERNEL}" --kmod kvmfr
 
 modinfo "/usr/lib/modules/${KERNEL}/extra/kvmfr/kvmfr.ko.xz" > /dev/null \
 || (find /var/cache/akmods/kvmfr/ -name \*.log -print -exec cat {} \; && exit 1)
-
-rm -f /etc/yum.repos.d/_copr_hikariknight-looking-glass-kvmfr.repo
 
 # enable vfio, largely from https://github.com/m2Giles/m2os/blob/main/build_files/vfio.sh
 

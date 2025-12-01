@@ -27,7 +27,7 @@ FROM ghcr.io/ublue-os/aurora-dx-nvidia-open:stable-daily
 
 ### MODIFICATIONS
 ## make modifications desired in your image and install packages by modifying the build.sh script
-## the following RUN directive does all the things required to run "build.sh" as recommended.
+## the following RUN directi695eb75bc387dbcd9685a8e72d23439d8686cba6ve does all the things required to run "build.sh" as recommended.
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
