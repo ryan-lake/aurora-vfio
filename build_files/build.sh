@@ -12,16 +12,25 @@ COPR_RELEASE="${RELEASE}"
 
 
 dnf5 -y copr enable hikariknight/looking-glass-kvmfr
-dnf5 -y install akmod-kvmfr-*.fc${RELEASE}.${ARCH}
+
+# Install the akmod package but *skip* its %post/%pre scripts so the
+# "Not to be used as root" logic never fires during the build.
+dnf5 -y install --setopt=tsflags=noscripts "akmod-kvmfr-*.fc${RELEASE}.${ARCH}"
+
+# (Optional but generally nice to have)
+dnf5 -y install kvmfr
+
 dnf5 -y copr disable hikariknight/looking-glass-kvmfr
 
 dnf5 install -y tmux minicom neovim tpm2-pkcs11 tpm2-pkcs11-tools
 
 # VFIO setup
-sudo -u akmods akmods --force --kernels "${KERNEL}" --kmod kvmfr
+akmods --force --kernels "${KERNEL}" --kmod kvmfr
 
-modinfo "/usr/lib/modules/${KERNEL}/extra/kvmfr/kvmfr.ko.xz" > /dev/null \
+ modinfo "/usr/lib/modules/${KERNEL}/extra/kvmfr/kvmfr.ko.xz" > /dev/null \
 || (find /var/cache/akmods/kvmfr/ -name \*.log -print -exec cat {} \; && exit 1)
+
+# rm -f /etc/yum.repos.d/_copr_hikariknight-looking-glass-kvmfr.repo
 
 # enable vfio, largely from https://github.com/m2Giles/m2os/blob/main/build_files/vfio.sh
 
