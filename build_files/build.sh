@@ -30,6 +30,66 @@ akmods --force --kernels "${KERNEL}" --kmod kvmfr
  modinfo "/usr/lib/modules/${KERNEL}/extra/kvmfr/kvmfr.ko.xz" > /dev/null \
 || (find /var/cache/akmods/kvmfr/ -name \*.log -print -exec cat {} \; && exit 1)
 
+# ==== Sign kvmfr with MOK key from GitHub secrets ====
+
+# Secrets mounted by buildah:
+MOK_PRIV_B64_FILE="/run/secrets/mok_priv"
+MOK_PEM_B64_FILE="/run/secrets/mok_pem"
+
+# Decode them into a tmpfs location so they never hit disk layers
+mkdir -p /run/moksign
+MOK_PRIV="/run/moksign/MOK.priv"
+MOK_PEM="/run/moksign/MOK.pem"
+
+if [[ -f "${MOK_PRIV_B64_FILE}" && -f "${MOK_PEM_B64_FILE}" ]]; then
+    base64 -d "${MOK_PRIV_B64_FILE}" > "${MOK_PRIV}"
+    base64 -d "${MOK_PEM_B64_FILE}"  > "${MOK_PEM}"
+else
+    echo "MOK secrets not found; cannot sign kvmfr" >&2
+    exit 1
+fi
+
+# Ensure kernel headers/scripts are available for sign-file
+dnf5 -y install "kernel-devel-${KERNEL}"
+
+MOD_DIR="/usr/lib/modules/${KERNEL}/extra/kvmfr"
+MOD_KO="${MOD_DIR}/kvmfr.ko"
+MOD_KO_XZ="${MOD_DIR}/kvmfr.ko.xz"
+
+if [[ -f "${MOD_KO}" ]]; then
+    TARGET_MOD="${MOD_KO}"
+elif [[ -f "${MOD_KO_XZ}" ]]; then
+    xz -d "${MOD_KO_XZ}"    # leaves kvmfr.ko
+    TARGET_MOD="${MOD_KO}"
+else
+    echo "kvmfr module not found under ${MOD_DIR}" >&2
+    find /var/cache/akmods/kvmfr/ -name '*.log' -print -exec cat {} \;
+    exit 1
+fi
+
+SIGN_FILE="/usr/src/kernels/${KERNEL}/scripts/sign-file"
+if [[ ! -x "${SIGN_FILE}" ]]; then
+    echo "sign-file not found at ${SIGN_FILE}" >&2
+    exit 1
+fi
+
+# Sign with your MOK key
+"${SIGN_FILE}" sha256 "${MOK_PRIV}" "${MOK_PEM}" "${TARGET_MOD}"
+
+# If we started with a compressed module, recompress it
+if [[ -f "${MOD_KO}" && ! -f "${MOD_KO_XZ}" ]]; then
+    xz --compress --check=crc32 --lzma2=dict=1MiB "${MOD_KO}"
+fi
+
+# Clean up key material
+shred -u "${MOK_PRIV}" "${MOK_PEM}" || true
+rmdir /run/moksign 2>/dev/null || true
+
+
+modinfo "/usr/lib/modules/${KERNEL}/extra/kvmfr/kvmfr.ko.xz" > /dev/null \
+|| (find /var/cache/akmods/kvmfr/ -name \*.log -print -exec cat {} \; && exit 1)
+# ==== end signing block ====
+
 # rm -f /etc/yum.repos.d/_copr_hikariknight-looking-glass-kvmfr.repo
 
 # enable vfio, largely from https://github.com/m2Giles/m2os/blob/main/build_files/vfio.sh
