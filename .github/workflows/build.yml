@@ -50,6 +50,7 @@ jobs:
       # This is optional, but if you see that your builds are way too big for the runners, you can enable this by uncommenting the following lines:
       - name: Maximize build space
         uses: ublue-os/remove-unwanted-software@v9
+        continue-on-error: true
         with:
           remove-codeql: true
 
@@ -105,6 +106,9 @@ jobs:
             containers.bootc=1
           sep-tags: " "
           sep-annotations: " "
+      
+      - name: Ensure /tmp is writable 
+        run: sudo chmod 1777 /tmp
 
       - name: Build Image
         id: build_image
