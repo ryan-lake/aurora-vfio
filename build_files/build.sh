@@ -2,6 +2,9 @@
 
 set -ouex pipefail
 
+# Ensure /tmp is writable (tmpfs mount may have restrictive permissions)
+chmod 1777 /tmp
+
 # Install kvmfr kernel module
 
 ARCH="$(rpm -E '%_arch')"
