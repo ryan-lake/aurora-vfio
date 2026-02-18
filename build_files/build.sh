@@ -14,7 +14,7 @@ COPR_RELEASE="${RELEASE}"
 
 
 
-dnf5 -y copr enable hikariknight/looking-glass-kvmfr
+dnf5 -y copr enable hikariknight/looking-glass-kvmfr "fedora-${COPR_RELEASE}-${ARCH}"
 
 # Install the akmod package but *skip* its %post/%pre scripts so the
 # "Not to be used as root" logic never fires during the build.
